@@ -1,0 +1,154 @@
+Parameters:
+
+
+  MeshOwner:
+    Type: String
+    Description: Owner of the Mesh
+    Default: <12digitaccountid>
+    
+  MeshName:
+    Type: String
+    Description: Name of the shared mesh
+    Default: <appmeshname>
+
+ 
+  EnvoyImage:
+    Type: String
+    Description: Envoy container image
+    Default: 840364872350.dkr.ecr.us-east-1.amazonaws.com/aws-appmesh-envoy:v1.18.3.0-prod
+
+  ServiceaImage:
+    Type: String
+    Description: Container image for Servicea
+    Default: <12digitaccountid>.dkr.ecr.us-east-1.amazonaws.com/new-domain1-serviceA-cell1:latest
+
+
+Resources:
+  ServiceATaskDef:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      RequiresCompatibilities:
+        - "FARGATE"
+      Family: "Domain1-ServiceA-Cell1"
+      NetworkMode: "awsvpc"
+      Cpu: 256
+      Memory: 512
+      TaskRoleArn: <arnoftaskrole>
+      ExecutionRoleArn: <arnoftaskexecutioniamrole>
+      ProxyConfiguration:
+        Type: "APPMESH"
+        ContainerName: "envoy"
+        ProxyConfigurationProperties:
+          - Name: "IgnoredUID"
+            Value: "1337"
+          - Name: "ProxyIngressPort"
+            Value: "15000"
+          - Name: "ProxyEgressPort"
+            Value: "15001"
+          - Name: "AppPorts"
+            Value: "5001"
+          - Name: "EgressIgnoredIPs"
+            Value: "169.254.170.2,169.254.169.254"
+      ContainerDefinitions:
+        - Name: "Domain2-ServiceA"
+          Image: !Ref ServiceAImage
+          Essential: true
+          DependsOn:
+            - ContainerName: 'xray-daemon'
+              Condition: 'START'
+            - ContainerName: 'envoy'
+              Condition: 'HEALTHY'
+          LogConfiguration:
+            LogDriver: "awslogs"
+            Options:
+              awslogs-group: "yourproject-log-group"
+              awslogs-region: "us-east-1"
+              awslogs-stream-prefix: "servicea-cell1"
+          PortMappings:
+            - ContainerPort: 5001
+              Protocol: "tcp"
+        - Name: xray-daemon
+          Image: amazon/aws-xray-daemon
+          Essential: true
+          User: "1337"
+          PortMappings:
+            - ContainerPort: 2000
+              Protocol: "udp"
+          LogConfiguration:
+            LogDriver: "awslogs"
+            Options:
+              awslogs-group: "yourproject-log-group"
+              awslogs-region: "us-east-1"
+              awslogs-stream-prefix: "servicea-cell1-xray"
+              
+        - Name: envoy
+          Image: !Ref EnvoyImage
+          Essential: true
+          User: "1337"
+          Ulimits:
+            - Name: "nofile"
+              HardLimit: 15000
+              SoftLimit: 15000
+          PortMappings:
+            - ContainerPort: 9901
+              Protocol: "tcp"
+            - ContainerPort: 15000
+              Protocol: "tcp"
+            - ContainerPort: 15001
+              Protocol: "tcp"
+          HealthCheck:
+            Command:
+              - "CMD-SHELL"
+              - "curl -s http://localhost:9901/server_info | grep state | grep -q LIVE"
+            Interval: 5
+            Timeout: 2
+            Retries: 3
+          LogConfiguration:
+            LogDriver: "awslogs"
+            Options:
+              awslogs-group:  "mayurproject-log-group"
+              awslogs-region: "us-east-1"
+              awslogs-stream-prefix: "servicea-cell1-envoy"
+          Environment:
+            - Name: "APPMESH_VIRTUAL_NODE_NAME"
+              Value: !Sub "mesh/${MeshName}@${MeshOwner}/virtualNode/Domain1-ServiceA-Cell1-VN"
+            - Name: "ENVOY_LOG_LEVEL"
+              Value: "debug"
+            - Name: "ENABLE_ENVOY_XRAY_TRACING"
+              Value: "1"
+
+
+  AppserverRegistry:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: "Domain2-ServiceA-Cell1"
+      DnsConfig:
+        NamespaceId: "ns-yournamespaceid"
+        DnsRecords:
+          - Type: A
+            TTL: 30
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+  AppserverService:
+    Type: AWS::ECS::Service
+    DependsOn: AppserverRegistry
+    Properties:
+      Cluster: "<yourecsclustername>"
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      DesiredCount: 2
+      LaunchType: "FARGATE"
+      ServiceRegistries:
+        - RegistryArn: !GetAtt "AppserverRegistry.Arn"
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups:
+            - sg-<yoursecuritygroup>
+          Subnets:
+            - subnet-<yourprivatesubnet1>
+            - subnet-<yourprivatesubnet2>
+      TaskDefinition: !Ref ServiceATaskDef
+
