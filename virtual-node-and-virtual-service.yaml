@@ -1,0 +1,71 @@
+Parameters:
+
+
+  MeshName:
+    Type: String
+    Description: Name of the shared mesh
+    Default: <yourappmeshname>
+
+  MeshOwner:
+    Type: String
+    Description: Account id of Mesh owner
+    Default: <yourparentaccountid>
+
+Resources:
+  Domain2ServiceXCell1Node:
+    Type: AWS::AppMesh::VirtualNode
+    Properties:
+      MeshName: !Ref MeshName
+      MeshOwner: !Ref MeshOwner
+      VirtualNodeName: Domain2-ServiceX-Cell1-VN
+      Spec:
+        Listeners:
+          - PortMapping:
+              Port: 5001
+              Protocol: http
+        
+        ServiceDiscovery:
+          DNS:
+            Hostname: Domain2-ServiceX-Cell1.internal-Domain2-GS.com
+
+  Domain2ServiceXCell1Service:
+    DependsOn:
+      - Domain2ServiceXCell1Node
+    Type: AWS::AppMesh::VirtualService
+    Properties:
+      MeshName: !Ref MeshName
+      MeshOwner: !Ref MeshOwner
+      VirtualServiceName: Domain2-ServiceX-Cell1.internal-Domain2-GS.com
+      Spec:
+        Provider:
+          VirtualNode:
+            VirtualNodeName: Domain2-ServiceX-Cell1-VN
+            
+  Domain2ServiceXCell2Node:
+    Type: AWS::AppMesh::VirtualNode
+    Properties:
+      MeshName: !Ref MeshName
+      MeshOwner: !Ref MeshOwner
+      VirtualNodeName: Domain2-ServiceX-Cell2-VN
+      Spec:
+        Listeners:
+          - PortMapping:
+              Port: 5001
+              Protocol: http
+        
+        ServiceDiscovery:
+          DNS:
+            Hostname: Domain2-ServiceX-Cell2.internal-Domain2-GS.com
+
+  Domain2ServiceXCell2Service:
+    DependsOn:
+      - Domain2ServiceXCell2Node
+    Type: AWS::AppMesh::VirtualService
+    Properties:
+      MeshName: !Ref MeshName
+      MeshOwner: !Ref MeshOwner
+      VirtualServiceName: Domain2-ServiceX-Cell2.internal-Domain2-GS.com
+      Spec:
+        Provider:
+          VirtualNode:
+            VirtualNodeName: Domain2-ServiceX-Cell2-VN
